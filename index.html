@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lead Priority Dashboard: Daily Chase List</title>
+<meta name="description" content="Upload a CRM leads export and get a daily, prioritised chase list per sales rep: new inbound, overdue follow-ups, deals going quiet and hot leads. Runs fully in the browser.">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" defer></script>
+<style>
+  :root {
+    --bg:#f6f7f9; --card:#fff; --text:#1c2430; --muted:#667085; --line:#e4e7ec;
+    --hot:#c0322b; --hot-bg:#fbe4e2; --warm:#b45309; --warm-bg:#fdf0dc; --cold:#475467; --cold-bg:#eef0f3;
+    --accent:#2f5bd3; --accent-bg:#e8eefc; --green:#12805c; --green-bg:#e3f5ee;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif; background:var(--bg); color:var(--text); font-size:14px; }
+  header { max-width:1320px; margin:0 auto; padding:26px 28px 6px; display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; justify-content:space-between; }
+  h1 { margin:0 0 4px; font-size:23px; }
+  header p { margin:0; color:var(--muted); }
+  .today { color:var(--muted); font-size:13px; }
+  main { max-width:1320px; margin:0 auto; padding:12px 28px 40px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0 14px; }
+  .btn { border:1px solid var(--line); background:var(--card); color:var(--text); padding:8px 13px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:500; }
+  .btn:hover { border-color:#c7ccd4; }
+  .btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .btn input { display:none; }
+  .source { color:var(--muted); font-size:12px; margin-left:auto; }
+  .err { color:var(--hot); font-size:13px; margin-bottom:8px; }
+  .repbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:14px; }
+  .repbar label { font-weight:600; font-size:13px; }
+  .repbar select { padding:7px 10px; border-radius:8px; border:1px solid var(--line); font-size:14px; min-width:220px; background:#fff; }
+  .repbar .hint { color:var(--muted); font-size:12px; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(165px,1fr)); gap:12px; margin-bottom:16px; }
+  .kpi { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; cursor:pointer; }
+  .kpi:hover { border-color:#c7ccd4; }
+  .kpi .label { color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; }
+  .kpi .value { font-size:25px; font-weight:650; margin-top:4px; }
+  .kpi .sub { color:var(--muted); font-size:12px; }
+  .kpi.focus { border-color:var(--hot); box-shadow:0 0 0 1px var(--hot) inset; }
+  .layout { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:18px; align-items:start; }
+  @media (max-width:1050px) { .layout { grid-template-columns:minmax(0,1fr); } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; }
+  .tabs { display:flex; gap:6px; padding:12px 14px; border-bottom:1px solid var(--line); flex-wrap:wrap; align-items:center; }
+  .chip { border:1px solid var(--line); background:#fff; border-radius:999px; padding:5px 12px; cursor:pointer; font-size:12.5px; }
+  .chip.active { background:var(--text); color:#fff; border-color:var(--text); }
+  .chip .n { opacity:.7; margin-left:4px; }
+  .tabs input { margin-left:auto; border:1px solid var(--line); border-radius:8px; padding:6px 10px; font-size:13px; min-width:200px; }
+  .table-wrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); white-space:nowrap; vertical-align:middle; }
+  th { font-size:12px; color:var(--muted); font-weight:600; background:#fafbfc; cursor:pointer; user-select:none; }
+  tbody tr { cursor:pointer; }
+  tbody tr:hover { background:#f9fafb; }
+  tbody tr.selected { background:var(--accent-bg); }
+  .sub2 { color:var(--muted); font-size:12px; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; }
+  .pill { display:inline-block; padding:3px 9px; border-radius:999px; font-size:11px; font-weight:650; }
+  .Hot { background:var(--hot-bg); color:var(--hot); } .Warm { background:var(--warm-bg); color:var(--warm); } .Cold { background:var(--cold-bg); color:var(--cold); }
+  .Closed { background:#f2f4f7; color:#98a2b3; }
+  .act { display:inline-block; padding:3px 8px; border-radius:6px; font-size:11.5px; font-weight:600; }
+  .a1 { background:#fbe4e2; color:#c0322b; } .a2 { background:#fdf0dc; color:#b45309; } .a3 { background:#e8eefc; color:#2f5bd3; } .a4 { background:#e3f5ee; color:#12805c; } .a0 { background:#f2f4f7; color:#667085; }
+  .scorecell { display:flex; align-items:center; gap:7px; }
+  .bar { width:56px; height:6px; background:var(--line); border-radius:3px; overflow:hidden; }
+  .bar span { display:block; height:100%; }
+  .more { padding:10px 14px; color:var(--muted); font-size:12px; }
+  .detail { padding:16px; }
+  .detail h3 { margin:0; font-size:17px; }
+  .detail .meta { color:var(--muted); font-size:12.5px; margin:3px 0 12px; line-height:1.5; }
+  .detail a { color:var(--accent); text-decoration:none; }
+  .contact { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+  .comp { margin-bottom:9px; }
+  .comp .row { display:flex; justify-content:space-between; font-size:12px; margin-bottom:3px; }
+  .comp .row span:last-child { color:var(--muted); }
+  .comp .bar { width:100%; height:7px; }
+  .box { margin-top:12px; padding:12px; border-radius:10px; background:#f9fafb; border:1px solid var(--line); line-height:1.45; }
+  .box strong { display:block; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-bottom:5px; }
+  .empty { color:var(--muted); }
+  .legend { padding:14px 16px; color:var(--muted); font-size:12px; line-height:1.55; }
+  .legend b { color:var(--text); }
+  footer { text-align:center; color:var(--muted); font-size:12px; padding:0 0 30px; }
+  .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#1c2430; color:#fff; padding:9px 16px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Lead Priority Dashboard</h1>
+    <p>Your daily chase list: who to call first, whose follow-up is overdue, and which deals are going quiet.</p>
+  </div>
+  <div class="today" id="todayLabel"></div>
+</header>
+<main>
+  <div class="toolbar">
+    <label class="btn primary">Upload leads export (CSV / Excel)<input type="file" id="fileInput" accept=".csv,.xlsx,.xls,text/csv"></label>
+    <button class="btn" id="sampleBtn">Load sample data</button>
+    <button class="btn" id="templateBtn">Download CSV template</button>
+    <button class="btn" id="exportBtn">Export my chase list</button>
+    <span class="source" id="source"></span>
+  </div>
+  <div class="err" id="error"></div>
+
+  <div class="repbar">
+    <label for="repSelect">Show leads for</label>
+    <select id="repSelect"></select>
+    <button class="btn" id="copyLink">Copy my link</button>
+    <span class="hint">Bookmark your link and your name is pre-selected every morning. Data stays in your browser and is never uploaded.</span>
+  </div>
+
+  <section class="kpis" id="kpis"></section>
+
+  <div class="layout">
+    <section class="card">
+      <div class="tabs" id="tabs"></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th data-k="name">Lead</th>
+            <th data-k="owner">Owner</th>
+            <th data-k="status">Status</th>
+            <th data-k="score">Score</th>
+            <th data-k="actionRank">Today's action</th>
+            <th data-k="touchDays" class="num">Last touch</th>
+            <th data-k="source">Source</th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <div class="more" id="more"></div>
+    </section>
+
+    <aside style="display:flex;flex-direction:column;gap:18px">
+      <section class="card"><div class="detail" id="detail"><p class="empty">Click a lead to see why it's ranked here, how to reach them and what to say.</p></div></section>
+      <section class="card legend">
+        <b>How leads are scored (0–100)</b><br>
+        Stage in the funnel (35) · Source intent: inbound beats outbound (20) · Recent activity (20) · Company fit (15) · Engagement signals (10).<br><br>
+        <b>Hot</b> ≥ 60 · <b>Warm</b> 40–59 · <b>Cold</b> &lt; 40. Junk, lost, not-qualified, won and converted leads are left out.<br><br>
+        <b>Chase today</b> lists, in priority order: new inbound (last 48h) → overdue / due follow-ups → deals at meeting or demo stage with no touch in 4–30 days (older ones move to Revive later) → hot leads due a touch → sequence follow-ups due.
+      </section>
+    </aside>
+  </div>
+</main>
+<footer>Built by Abhishek Sonawane · Sample data is fictional · Your uploaded file never leaves this browser</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+// =============================================================================
+// Field mapping: accepts Zoho CRM export labels or API names (and common variants)
+// =============================================================================
+const FIELD_ALIASES = {
+  owner:      ["lead owner","owner","lead_owner","sales rep","assigned to"],
+  ownerEmail: ["lead owner email","owner email","owner_email"],
+  fullName:   ["full name","full_name","name","lead name"],
+  first:      ["first name","first_name"],
+  last:       ["last name","last_name"],
+  company:    ["company","company name","account name"],
+  email:      ["email","email address"],
+  phone:      ["phone","phone number"],
+  mobile:     ["mobile","mobile number"],
+  status:     ["lead status","lead_status","status"],
+  source:     ["lead source","lead_source","source"],
+  motion:     ["lead motion","lead_motion"],
+  created:    ["created time","created_time","created date","created at"],
+  modified:   ["modified time","modified_time","last modified"],
+  lastActivity:["last activity time","last_activity_time","last activity"],
+  nextFollowup:["next followup date","next_followup_date","next follow-up date","next follow up date","follow up date"],
+  followupCount:["followup count","followup_count","follow up count"],
+  dealSize:   ["potential deal size - usd","potential_deal_size_usd","deal size","potential deal size"],
+  budget:     ["budget range","budget_range","budget"],
+  services:   ["interested services","interested_services"],
+  segment:    ["segment"],
+  businessLine:["business line","business_line"],
+  employees:  ["no. of employees","no_of_employees","employees","company size"],
+  zohoScore:  ["lead score 1","lead_score_1","lead score","score"],
+  visitorScore:["visitor score","visitor_score"],
+  daysVisited:["days visited","days_visited"],
+  chats:      ["number of chats","number_of_chats"],
+  converted:  ["is converted","converted__s","converted"],
+  linkedin:   ["linkedin","linkedin url"],
+};
+const norm = s => String(s ?? "").toLowerCase().replace(/^﻿/, "").replace(/\s+/g, " ").trim();
+
+// =============================================================================
+// Date handling (Zoho exports vary: ISO, "Nov 5, 2026 02:30 PM", dd/mm/yyyy, Excel serials)
+// =============================================================================
+const MONTHS = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+function parseDate(v) {
+  if (v === null || v === undefined || v === "") return null;
+  if (v instanceof Date) return isNaN(v) ? null : v;
+  if (typeof v === "number") return v > 20000 && v < 80000 ? new Date(Math.round((v - 25569) * 86400000)) : null; // Excel serial
+  const s = String(v).trim();
+  if (!s || s === "-None-") return null;
+  let m;
+  if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/))) {
+    if (/[+-]\d{2}:?\d{2}$|Z$/.test(s)) { const d = new Date(s.replace(" ", "T")); if (!isNaN(d)) return d; }
+    return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0));
+  }
+  if ((m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp][Mm])?)?/))) {
+    let h = +(m[4] || 0); if (m[6]) h = (h % 12) + (/p/i.test(m[6]) ? 12 : 0);
+    return new Date(+m[3], +m[2] - 1, +m[1], h, +(m[5] || 0));               // dd/mm/yyyy (India)
+  }
+  if ((m = s.match(/^([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp][Mm])?)?/))) {
+    let h = +(m[4] || 0); if (m[6]) h = (h % 12) + (/p/i.test(m[6]) ? 12 : 0);
+    const mo = MONTHS[m[1].toLowerCase()]; if (mo !== undefined) return new Date(+m[3], mo, +m[2], h, +(m[5] || 0));
+  }
+  if ((m = s.match(/^(\d{1,2})[\s-]([A-Za-z]{3})[a-z]*[\s-](\d{4})/))) {
+    const mo = MONTHS[m[2].toLowerCase()]; if (mo !== undefined) return new Date(+m[3], mo, +m[1]);
+  }
+  const d = new Date(s); return isNaN(d) ? null : d;
+}
+const DAY = 86400000;
+const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const num = v => { if (v === null || v === undefined || v === "") return NaN; const n = Number(String(v).replace(/[^0-9.\-]/g, "")); return n; };
+const txt = v => { const s = (v ?? "").toString().trim(); return s === "-None-" ? "" : s; };
+
+// =============================================================================
+// Scoring model
+// =============================================================================
+const CLOSED = new Set(["junk lead","lost lead","not qualified","won closed","closed won","closed lost","converted"]);
+const PIPELINE = new Set(["proposal sent","meeting set","demo scheduled","demo done","qualified","trial active"]);
+const EARLY = new Set(["","fresh lead","signed up - free","attempted to contact","contacted","fu - 1","new"]);
+const STAGE_POINTS = {
+  "proposal sent":35, "meeting set":34, "demo scheduled":34, "demo done":32, "qualified":30, "trial active":30,
+  "signed up - free":22, "fresh lead":22, "new":22, "contacted":20, "trial expired":16,
+  "contact in future":12, "attempted to contact":10, "contacted gone cold":5, "all fw done":2, "":14,
+};
+const INBOUND_SOURCES = {
+  "website meeting request":20, "referral":18, "contact form":17, "website form - soocel":17, "chat":17,
+  "google adwords":16, "google ads":16, "website signup agency":15, "website signup normal":13, "soocel website homepage":13,
+};
+const OUTBOUND_SOURCES = {
+  "manual outreach linkedin":9, "manual outreach call":9, "manual outreach email":8, "manual outreach twitter":7,
+  "manual outreach general":8, "linkedin automation":7, "email automation":6, "web research":5,
+};
+const MOTION_POINTS = { "inbound":14, "partner / referral":16, "outbound":6 };
+
+function stagePoints(status) {
+  const s = norm(status);
+  if (s in STAGE_POINTS) return STAGE_POINTS[s];
+  const fu = s.match(/^fu\s*-\s*(\d+)/); if (fu) return Math.max(3, 14 - Math.round(1.5 * +fu[1]));
+  return 12;
+}
+function sourcePoints(source, motion) {
+  const s = norm(source), m = norm(motion);
+  if (s in INBOUND_SOURCES) return { pts: INBOUND_SOURCES[s], inbound: true };
+  if (s in OUTBOUND_SOURCES) return { pts: OUTBOUND_SOURCES[s], inbound: false };
+  if (m in MOTION_POINTS) return { pts: MOTION_POINTS[m], inbound: m !== "outbound" };
+  if (/website|form|inbound|ads|adwords|chat|referr/.test(s)) return { pts: 14, inbound: true };
+  return { pts: 8, inbound: false };
+}
+function recencyPoints(days) {
+  if (days === null) return 6;
+  return days <= 1 ? 20 : days <= 3 ? 16 : days <= 7 ? 12 : days <= 14 ? 8 : days <= 30 ? 4 : 0;
+}
+function fitPoints(l) {
+  let p = 0, any = false;
+  if (Number.isFinite(l.employees) && l.employees > 0) { any = true; p += l.employees >= 200 ? 6 : l.employees >= 50 ? 5 : l.employees >= 11 ? 4 : 2; }
+  if (Number.isFinite(l.dealSize) && l.dealSize > 0) { any = true; p += l.dealSize >= 5000 ? 6 : l.dealSize >= 2000 ? 5 : l.dealSize >= 500 ? 3 : 2; }
+  if (l.budget) { any = true; p += 2; }
+  if (l.services) { any = true; p += 2; }
+  const seg = norm(l.segment);
+  if (seg) { any = true; p += seg === "agency" ? 3 : seg === "marketing services" ? 2 : 1; }
+  return any ? Math.min(15, p) : 5;                        // no fit data → neutral
+}
+function engagementPoints(l) {
+  let p = 0, any = false;
+  if (Number.isFinite(l.zohoScore)) { any = true; p += Math.min(6, Math.max(0, l.zohoScore) * 0.3); }
+  if (Number.isFinite(l.visitorScore) && l.visitorScore > 0) { any = true; p += Math.min(4, l.visitorScore / 10); }
+  if (Number.isFinite(l.daysVisited) && l.daysVisited >= 2) { any = true; p += 2; }
+  if (Number.isFinite(l.chats) && l.chats >= 1) { any = true; p += 3; }
+  return any ? Math.min(10, p) : 3;                        // no engagement data → neutral
+}
+
+const ACTIONS = {
+  1: { cls:"a1", label:"New inbound: call today" },
+  2: { cls:"a1", label:"Follow-up overdue" },
+  3: { cls:"a2", label:"Follow-up due today" },
+  4: { cls:"a2", label:"Deal going quiet" },
+  5: { cls:"a3", label:"Hot: next touch due" },
+  6: { cls:"a3", label:"Sequence step due" },
+  7: { cls:"a4", label:"Revive later" },
+  9: { cls:"a0", label:"Nurture" },
+};
+
+function scoreLead(l, today) {
+  const t0 = startOfDay(today).getTime();
+  const lastTouch = l.lastActivity || l.modified || l.created;
+  const touchDays = lastTouch ? Math.max(0, Math.floor((t0 - startOfDay(lastTouch).getTime()) / DAY)) : null;
+  const ageDays = l.created ? Math.max(0, Math.floor((t0 - startOfDay(l.created).getTime()) / DAY)) : null;
+  const s = norm(l.status);
+  const closed = CLOSED.has(s) || /^(true|yes|1)$/i.test(l.converted || "");
+  const src = sourcePoints(l.source, l.motion);
+  const comp = {
+    stage: stagePoints(l.status), source: src.pts, recency: recencyPoints(touchDays),
+    fit: fitPoints(l), engagement: engagementPoints(l),
+  };
+  const score = Math.round(comp.stage + comp.source + comp.recency + comp.fit + comp.engagement);
+  const tier = closed ? "Closed" : score >= 60 ? "Hot" : score >= 40 ? "Warm" : "Cold";
+
+  // Today's action (first matching rule wins)
+  let rank = 9, why = "";
+  const fuDay = l.nextFollowup ? startOfDay(l.nextFollowup).getTime() : null;
+  const fu = s.match(/^fu\s*-\s*(\d+)/);
+  if (!closed) {
+    if (src.inbound && ageDays !== null && ageDays <= 2 && EARLY.has(s)) {
+      rank = 1; why = `Came in ${ageDays === 0 ? "today" : ageDays === 1 ? "yesterday" : "2 days ago"} via ${l.source || l.motion || "inbound"}. Inbound leads go cold fast; call within the hour.`;
+    } else if (fuDay !== null && fuDay < t0) {
+      const od = Math.round((t0 - fuDay) / DAY);
+      rank = 2; why = `Follow-up was scheduled ${od} day${od > 1 ? "s" : ""} ago and hasn't happened.`;
+    } else if (fuDay !== null && fuDay === t0) {
+      rank = 3; why = "Follow-up scheduled for today.";
+    } else if (PIPELINE.has(s) && touchDays !== null && touchDays >= 4 && touchDays <= 30) {
+      rank = 4; why = `At "${l.status}" stage but no activity in ${touchDays} days. Deals stall when momentum drops.`;
+    } else if (tier === "Hot" && (touchDays === null || touchDays >= 2)) {
+      rank = 5; why = `High-scoring lead, last touched ${touchDays ?? "?"} days ago.`;
+    } else if ((fu && +fu[1] < 7 && touchDays !== null && touchDays >= 3 && touchDays <= 21) ||
+               (s === "attempted to contact" && ageDays !== null && ageDays <= 30 && touchDays !== null && touchDays >= 3)) {
+      rank = 6; why = fu ? `On ${l.status}; ${touchDays} days since last touch. Send FU - ${+fu[1] + 1}.` : `Not reached yet; ${touchDays} days since last attempt. Try a different channel.`;
+    } else if (["contacted gone cold","contact in future","trial expired"].includes(s) || (fu && touchDays > 21) || (PIPELINE.has(s) && touchDays > 30)) {
+      rank = 7; why = "Went quiet. Keep for a monthly revival push with a new angle, not daily chasing.";
+    } else {
+      why = touchDays !== null && touchDays < 2 ? "Touched recently. No action needed today." : "Low urgency. Keep in the regular nurture cadence.";
+    }
+  }
+  return { ...l, comp, score, tier, closed, inbound: src.inbound, touchDays, ageDays, actionRank: closed ? 99 : rank, why, chase: !closed && rank <= 6 };
+}
+
+function talkTrack(l) {
+  const first = (l.name || "there").split(" ")[0];
+  switch (l.actionRank) {
+    case 1: return `"Hi ${first}, saw your ${/signup/i.test(l.source) ? "sign-up" : "enquiry"} come in${l.company ? " from " + l.company : ""}. What made you look at this now?" Qualify the need, then book a 20-min call.`;
+    case 2: case 3: return `Pick up from the last conversation and give a new reason to reply (a result, a relevant example), not "just checking in". Set the next follow-up date before you hang up.`;
+    case 4: return `Recap what was agreed at the ${l.status.toLowerCase()} stage, name one clear next step (proposal, pricing call, decision date) and ask who else needs to be involved.`;
+    case 5: return `Strong-fit lead. Personalise the touch (their site, a recent post, a competitor) and ask for a specific time slot.`;
+    case 6: return `Next step in the sequence. Switch channel if the last two were the same (LinkedIn → email → call).`;
+    case 7: return `Park it for the monthly revival list. Come back with a new trigger: a case study, an offer or a change at their company.`;
+    default: return `No action needed today.`;
+  }
+}
+
+// =============================================================================
+// CSV / Excel reading
+// =============================================================================
+function parseCSV(text) {
+  const rows = []; let row = [], field = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"' && text[i + 1] === '"') { field += '"'; i++; } else if (ch === '"') q = false; else field += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(field); field = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(field); field = ""; if (row.some(v => v.trim())) rows.push(row); row = []; }
+    else field += ch;
+  }
+  row.push(field); if (row.some(v => v.trim())) rows.push(row);
+  return rows;
+}
+function rowsToLeads(rows) {
+  if (rows.length < 2) throw new Error("The file has no data rows.");
+  const header = rows[0].map(norm);
+  const idx = {};
+  for (const [k, aliases] of Object.entries(FIELD_ALIASES)) {
+    const i = header.findIndex(h => aliases.includes(h)); if (i >= 0) idx[k] = i;
+  }
+  if (idx.status === undefined) throw new Error('Couldn\'t find a "Lead Status" column. Export the Leads module from Zoho CRM, or use the CSV template.');
+  if (idx.owner === undefined && idx.fullName === undefined && idx.first === undefined && idx.company === undefined)
+    throw new Error("Couldn't find name, company or owner columns. Check the file is a leads export.");
+  const g = (r, k) => idx[k] === undefined ? "" : r[idx[k]];
+  return rows.slice(1).map(r => {
+    const name = txt(g(r, "fullName")) || [txt(g(r, "first")), txt(g(r, "last"))].filter(Boolean).join(" ");
+    return {
+      name: name || txt(g(r, "company")) || "(no name)",
+      company: txt(g(r, "company")), email: txt(g(r, "email")), phone: txt(g(r, "mobile")) || txt(g(r, "phone")),
+      linkedin: txt(g(r, "linkedin")),
+      owner: txt(g(r, "owner")) || "Unassigned", ownerEmail: txt(g(r, "ownerEmail")),
+      status: txt(g(r, "status")), source: txt(g(r, "source")), motion: txt(g(r, "motion")),
+      created: parseDate(g(r, "created")), modified: parseDate(g(r, "modified")), lastActivity: parseDate(g(r, "lastActivity")),
+      nextFollowup: parseDate(g(r, "nextFollowup")), followupCount: num(g(r, "followupCount")),
+      dealSize: num(g(r, "dealSize")), budget: txt(g(r, "budget")), services: txt(g(r, "services")),
+      segment: txt(g(r, "segment")), businessLine: txt(g(r, "businessLine")), employees: num(g(r, "employees")),
+      zohoScore: num(g(r, "zohoScore")), visitorScore: num(g(r, "visitorScore")), daysVisited: num(g(r, "daysVisited")),
+      chats: num(g(r, "chats")), converted: txt(g(r, "converted")),
+    };
+  });
+}
+
+// =============================================================================
+// Fictional sample data, generated relative to today so the demo never goes stale
+// =============================================================================
+function sampleRows() {
+  const reps = ["Neha Kulkarni", "Rahul Desai", "Aditi Joshi"];
+  const people = [
+    ["Arjun","Mehta","Brewbox Coffee"],["Sneha","Patil","Lumen Skincare"],["Karan","Shah","FitFuel Nutrition"],["Ishita","Rao","Nestwell Interiors"],
+    ["Vikram","Nair","Orbit Logistics"],["Pooja","Iyer","Craftly Studio"],["Rohit","Kapoor","Zenith EdTech"],["Ananya","Gupta","Bloom Florals"],
+    ["Siddharth","Jain","Pixelpeak Media"],["Meera","Kulkarni","Aarogya Clinics"],["Aditya","Verma","UrbanNest Realty"],["Kavya","Reddy","Tealeaf Organics"],
+    ["Nikhil","Bose","CodeCraft Labs"],["Riya","Malhotra","Velvet Salon"],["Harsh","Agarwal","SwiftCart"],["Tanvi","Deshpande","Moksha Yoga"],
+    ["Manish","Singh","GreenGrid Solar"],["Divya","Menon","Spice Route Foods"],["Aman","Chopra","Finwise Advisors"],["Neha","Saxena","Petpal Store"],
+    ["Rahul","Pillai","Stackly SaaS"],["Shruti","Joshi","Kidzone Learning"],["Varun","Bhat","Driftwood Hotels"],["Priya","Ghosh","Glowup Cosmetics"],
+    ["Kunal","Thakur","Metro Motors"],["Aisha","Khan","Saffron Weddings"],["Yash","Pandit","CloudKitchen Co"],["Nisha","Dutta","Elevate HR"],
+    ["Gaurav","Sinha","Trekkers Gear"],["Sanya","Arora","Pure Dairy"],["Abhay","Kulkarni","LedgerLite"],["Ira","Sen","Canvas Coworking"],
+    ["Dev","Mishra","Rapid Couriers"],["Tara","Nambiar","Healwell Physio"],["Omkar","Gokhale","BuildRight Infra"],["Lavanya","Krishnan","Silk Threads"],
+  ];
+  const plan = [
+    // status, source, motion, createdAgo, touchAgo, followupIn(days; null = none), employees, segment, zohoScore, dealUSD
+    ["", "Website Meeting Request","Inbound",0,0,null,25,"Agency",15,3000],
+    ["Fresh Lead","Website Signup Agency","Inbound",1,1,null,40,"Agency",10,null],
+    ["Signed Up - Free","Website Signup Normal","Inbound",0,0,null,8,"Starter/Pro",10,null],
+    ["Attempted to Contact","Google AdWords","Inbound",2,1,null,15,"Marketing Services",5,null],
+    ["Meeting Set","Referral","Partner / Referral",12,6,null,120,"Agency",20,6000],
+    ["Demo Done","Manual Outreach Linkedin","Outbound",30,9,null,60,"Marketing Services",15,4000],
+    ["Proposal Sent","Website Meeting Request","Inbound",25,5,null,80,"Agency",20,8000],
+    ["QUALIFIED","Linkedin Automation","Outbound",18,2,null,35,"Starter/Pro",10,1500],
+    ["Trial Active","Website Signup Normal","Inbound",6,1,null,12,"Starter/Pro",15,null],
+    ["Contacted","Manual Outreach Call","Outbound",9,3,-2,22,"",0,null],
+    ["Contact in Future","Web Research","Outbound",60,40,0,300,"",0,null],
+    ["FU - 1","Linkedin Automation","Outbound",8,4,null,18,"",0,null],
+    ["FU - 2","Web Research","Outbound",15,5,null,45,"",0,null],
+    ["FU - 4","Manual Outreach Email","Outbound",28,6,null,70,"",0,null],
+    ["FU - 6","Web Research","Outbound",50,25,null,10,"",0,null],
+    ["Attempted to Contact","Web Research","Outbound",10,4,null,30,"",0,null],
+    ["Attempted to Contact","Linkedin Automation","Outbound",45,30,null,9,"",0,null],
+    ["Contacted Gone Cold","Website Signup Normal","Inbound",90,50,null,14,"Starter/Pro",0,null],
+    ["Demo Scheduled","Chat","Inbound",4,1,2,55,"Agency",20,5000],
+    ["Contacted","Referral","Partner / Referral",5,1,1,90,"Marketing Services",10,3000],
+    ["Trial Expired","Website Signup Normal","Inbound",40,20,null,6,"Starter/Pro",5,null],
+    ["All FW Done","Web Research","Outbound",120,60,null,20,"",0,null],
+    ["Junk Lead","Website Signup Normal","Inbound",3,3,null,null,"",0,null],
+    ["Not Qualified","Manual Outreach General","Outbound",20,15,null,4,"",0,null],
+    ["FU - 3","Manual Outreach Linkedin","Outbound",12,3,-1,150,"Agency",10,2500],
+    ["Signed Up - Free","Website Signup Normal","Inbound",7,7,null,5,"Starter/Pro",0,null],
+    ["Meeting Set","Manual Outreach Call","Outbound",3,1,3,40,"Marketing Services",15,2000],
+    ["FU - 2","Linkedin Automation","Outbound",6,3,null,25,"",0,null],
+    ["Fresh Lead","Contact Form","Inbound",0,0,null,60,"Agency",0,null],
+    ["Contacted","Web Research","Outbound",20,12,null,35,"",0,null],
+    ["FU - 5","Manual Outreach Email","Outbound",35,8,null,15,"",0,null],
+    ["Lost Lead","Referral","Partner / Referral",70,40,null,100,"Agency",0,null],
+    ["Demo Done","Website Meeting Request","Inbound",14,2,null,45,"Agency",20,5000],
+    ["Attempted to Contact","Google AdWords","Inbound",5,3,null,12,"",5,null],
+    ["QUALIFIED","Web Research","Outbound",22,11,null,200,"Marketing Services",10,7000],
+    ["FU - 1","Manual Outreach Linkedin","Outbound",4,3,null,30,"",0,null],
+  ];
+  const today = startOfDay(new Date());
+  const fmt = (ago, h) => { const d = new Date(today.getTime() - ago * DAY); d.setHours(h, 15); const p = n => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:00`; };
+  const head = ["Lead Owner","First Name","Last Name","Company","Email","Mobile","Lead Status","Lead Source","Lead Motion","Created Time","Modified Time","Last Activity Time","Next Followup Date","No. of Employees","Segment","Lead Score 1","Potential Deal Size - USD"];
+  const rows = [head];
+  plan.forEach((p, i) => {
+    const [f, l, c] = people[i % people.length];
+    const dom = c.toLowerCase().replace(/[^a-z]/g, "") + ".example";
+    rows.push([reps[i % 3], f, l, c, `${f.toLowerCase()}@${dom}`, `+91 98${String(10000000 + i * 7919).slice(0, 8)}`,
+      p[0], p[1], p[2], fmt(p[3], 10), fmt(p[4], 16), fmt(p[4], 16),
+      p[5] === null ? "" : fmt(-p[5], 11), p[6] ?? "", p[7], p[8], p[9] ?? ""].map(String));
+  });
+  return rows;
+}
+
+// =============================================================================
+// State, rendering, events
+// =============================================================================
+let leads = [], view = "chase", query = "", rep = "", sortKey = null, sortDir = 1, selectedId = null;
+const MAX_ROWS = 300;
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const colorFor = s => s >= 60 ? "var(--hot)" : s >= 40 ? "var(--warm)" : "#98a2b3";
+const daysLabel = d => d === null ? "–" : d === 0 ? "today" : d === 1 ? "1 day" : d + " days";
+const toast = msg => { const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 1800); };
+
+function load(rows, label) {
+  try {
+    const today = new Date();
+    leads = rowsToLeads(rows).map((l, i) => ({ ...scoreLead(l, today), id: i }));
+    document.getElementById("error").textContent = "";
+    document.getElementById("source").textContent = `${leads.length.toLocaleString("en-IN")} leads · ${label}`;
+    selectedId = null;
+    buildRepSelect();
+    render();
+  } catch (e) { document.getElementById("error").textContent = e.message; }
+}
+
+function buildRepSelect() {
+  const counts = {};
+  leads.forEach(l => { if (!l.closed) counts[l.owner] = (counts[l.owner] || 0) + 1; });
+  const owners = Object.keys(counts).sort();
+  const urlRep = new URLSearchParams(location.search).get("rep") || "";
+  const match = owners.find(o => norm(o) === norm(urlRep)) || owners.find(o => urlRep && norm(o).includes(norm(urlRep)));
+  rep = match || (owners.includes(rep) ? rep : "");
+  document.getElementById("repSelect").innerHTML = `<option value="">Everyone (${Object.values(counts).reduce((a, b) => a + b, 0)})</option>` +
+    owners.map(o => `<option value="${esc(o)}" ${o === rep ? "selected" : ""}>${esc(o)} (${counts[o]})</option>`).join("");
+}
+
+function scoped() { return leads.filter(l => !rep || l.owner === rep); }
+
+const TABS = [
+  ["chase", "Chase today", l => l.chase],
+  ["hot", "Hot", l => l.tier === "Hot"],
+  ["warm", "Warm", l => l.tier === "Warm"],
+  ["cold", "Cold", l => l.tier === "Cold"],
+  ["revive", "Revive later", l => l.actionRank === 7],
+  ["all", "All open", l => !l.closed],
+];
+
+function render() {
+  const base = scoped();
+  const open = base.filter(l => !l.closed);
+  const k = r => open.filter(l => l.actionRank === r).length;
+  const hot = open.filter(l => l.tier === "Hot");
+  const chase = open.filter(l => l.chase);
+  document.getElementById("kpis").innerHTML = [
+    ["chase", "Chase today", chase.length, `${hot.length} hot leads in total`, true],
+    ["chase", "New inbound (48h)", k(1), "Call within the hour"],
+    ["chase", "Follow-ups overdue / today", k(2) + k(3), `${k(2)} overdue · ${k(3)} today`],
+    ["chase", "Deals going quiet", k(4), "Meeting/demo stage, 4–30 days silent"],
+    ["chase", "Sequence steps due", k(6), "FU / retry contact"],
+    ["all", "Open leads", open.length.toLocaleString("en-IN"), `${base.length - open.length} closed / junk excluded`],
+  ].map(([v, l, n, s, f]) => `<div class="kpi ${f ? "focus" : ""}" data-view="${v}"><div class="label">${l}</div><div class="value">${n}</div><div class="sub">${s}</div></div>`).join("");
+
+  document.getElementById("tabs").innerHTML = TABS.map(([id, label, fn]) =>
+    `<button class="chip ${view === id ? "active" : ""}" data-view="${id}">${label}<span class="n">${base.filter(fn).length.toLocaleString("en-IN")}</span></button>`).join("") +
+    `<input type="search" id="search" placeholder="Search name, company, email" value="${esc(query)}">`;
+
+  let rows = base.filter(TABS.find(t => t[0] === view)[2]);
+  if (query) rows = rows.filter(l => norm([l.name, l.company, l.email, l.phone, l.owner].join(" ")).includes(query));
+  rows.sort((a, b) => {
+    if (sortKey) { const x = a[sortKey] ?? 9999, y = b[sortKey] ?? 9999; return (typeof x === "number" ? x - y : String(x).localeCompare(String(y))) * sortDir; }
+    return view === "chase" ? (a.actionRank - b.actionRank) || (b.score - a.score) : (b.score - a.score) || (a.touchDays ?? 9999) - (b.touchDays ?? 9999);
+  });
+  const shown = rows.slice(0, MAX_ROWS);
+  document.getElementById("tbody").innerHTML = shown.map(l => {
+    const a = ACTIONS[l.actionRank] || { cls:"a0", label:"Closed" };
+    return `<tr data-id="${l.id}" class="${l.id === selectedId ? "selected" : ""}">
+      <td><b>${esc(l.name)}</b><div class="sub2">${esc(l.company || l.email || "")}</div></td>
+      <td>${esc(l.owner)}</td>
+      <td>${esc(l.status || "–")}</td>
+      <td><div class="scorecell"><div class="bar"><span style="width:${l.score}%;background:${colorFor(l.score)}"></span></div><b>${l.score}</b> <span class="pill ${l.tier}">${l.tier}</span></div></td>
+      <td><span class="act ${a.cls}">${a.label}</span></td>
+      <td class="num">${daysLabel(l.touchDays)}</td>
+      <td class="sub2">${esc(l.source || l.motion || "–")}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="7" class="empty" style="padding:18px">${leads.length ? "Nothing here. Nice work, or try another tab." : "Upload a leads export or load the sample data to start."}</td></tr>`;
+  document.getElementById("more").textContent = rows.length > MAX_ROWS ? `Showing top ${MAX_ROWS} of ${rows.length.toLocaleString("en-IN")}. Use search or pick your name to narrow down.` : "";
+  renderDetail();
+}
+
+function renderDetail() {
+  const el = document.getElementById("detail");
+  const l = leads.find(x => x.id === selectedId);
+  if (!l) { el.innerHTML = '<p class="empty">Click a lead to see why it\'s ranked here, how to reach them and what to say.</p>'; return; }
+  const a = ACTIONS[l.actionRank] || { cls:"a0", label:"Closed" };
+  const comps = [["Funnel stage", l.comp.stage, 35], ["Source intent", l.comp.source, 20], ["Recent activity", l.comp.recency, 20], ["Company fit", l.comp.fit, 15], ["Engagement", l.comp.engagement, 10]];
+  const tel = l.phone.replace(/[^\d+]/g, "");
+  el.innerHTML = `
+    <h3>${esc(l.name)}</h3>
+    <div class="meta">${esc([l.company, l.businessLine, l.segment].filter(Boolean).join(" · "))}<br>
+      Owner: ${esc(l.owner)} · Status: ${esc(l.status || "–")} · Created ${daysLabel(l.ageDays)}${l.ageDays ? " ago" : ""}
+      ${l.nextFollowup ? `<br>Next follow-up: ${l.nextFollowup.toLocaleDateString("en-IN", { day:"numeric", month:"short", year:"numeric" })}` : ""}</div>
+    <div class="contact">
+      ${l.phone ? `<a class="btn" href="tel:${esc(tel)}">📞 Call</a><a class="btn" href="https://wa.me/${esc(tel.replace("+", ""))}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
+      ${l.email ? `<a class="btn" href="mailto:${esc(l.email)}">✉️ Email</a>` : ""}
+      ${l.linkedin ? `<a class="btn" href="${esc(l.linkedin)}" target="_blank" rel="noopener">LinkedIn</a>` : ""}
+    </div>
+    <div class="comp"><div class="row"><b>Score ${l.score}/100</b><span><span class="pill ${l.tier}">${l.tier}</span></span></div></div>
+    ${comps.map(([n, v, m]) => `<div class="comp"><div class="row"><span>${n}</span><span>${Math.round(v)} / ${m}</span></div><div class="bar"><span style="width:${v / m * 100}%;background:${colorFor(v / m * 100)}"></span></div></div>`).join("")}
+    <div class="box"><strong>Today's action</strong><span class="act ${a.cls}">${a.label}</span><div style="margin-top:6px">${esc(l.why)}</div></div>
+    <div class="box"><strong>What to say</strong>${esc(talkTrack(l))}</div>`;
+}
+
+// Events
+document.getElementById("tabs").addEventListener("click", e => { const b = e.target.closest("[data-view]"); if (b) { view = b.dataset.view; sortKey = null; render(); } });
+document.getElementById("tabs").addEventListener("input", e => { if (e.target.id === "search") { query = norm(e.target.value); const pos = e.target.selectionStart; render(); const s = document.getElementById("search"); s.focus(); s.setSelectionRange(pos, pos); } });
+document.getElementById("kpis").addEventListener("click", e => { const b = e.target.closest("[data-view]"); if (b) { view = b.dataset.view; sortKey = null; render(); } });
+document.querySelector("thead").addEventListener("click", e => { const k = e.target.dataset.k; if (!k) return; sortDir = sortKey === k ? -sortDir : (k === "score" ? -1 : 1); sortKey = k; render(); });
+document.getElementById("tbody").addEventListener("click", e => { const tr = e.target.closest("tr[data-id]"); if (tr) { selectedId = +tr.dataset.id; render(); if (innerWidth < 1050) document.getElementById("detail").scrollIntoView({ behavior:"smooth" }); } });
+document.getElementById("repSelect").addEventListener("change", e => {
+  rep = e.target.value; selectedId = null;
+  const u = new URL(location.href); rep ? u.searchParams.set("rep", rep) : u.searchParams.delete("rep"); history.replaceState(null, "", u);
+  render();
+});
+document.getElementById("copyLink").addEventListener("click", async () => {
+  const u = new URL(location.href); u.hash = ""; rep ? u.searchParams.set("rep", rep) : u.searchParams.delete("rep");
+  try { await navigator.clipboard.writeText(u.toString()); toast(rep ? `Link for ${rep} copied` : "Link copied"); } catch { prompt("Copy this link:", u.toString()); }
+});
+document.getElementById("fileInput").addEventListener("change", e => {
+  const f = e.target.files[0]; if (!f) return; e.target.value = "";
+  const reader = new FileReader();
+  if (/\.xlsx?$/i.test(f.name)) {
+    if (!window.XLSX) { document.getElementById("error").textContent = "The Excel reader didn't load (are you offline?). Export as CSV instead."; return; }
+    reader.onload = () => {
+      try {
+        const wb = XLSX.read(reader.result, { type:"array", cellDates:true });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, raw:true, defval:"" }).map(r => r.map(c => c instanceof Date ? c : String(c)));
+        load(rows, f.name);
+      } catch (err) { document.getElementById("error").textContent = "Couldn't read that Excel file: " + err.message; }
+    };
+    reader.readAsArrayBuffer(f);
+  } else { reader.onload = () => load(parseCSV(reader.result), f.name); reader.readAsText(f); }
+});
+document.getElementById("sampleBtn").addEventListener("click", () => load(sampleRows(), "fictional sample data"));
+function downloadCSV(name, rows) {
+  const cell = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const blob = new Blob(["﻿" + rows.map(r => r.map(cell).join(",")).join("\n")], { type:"text/csv;charset=utf-8" });
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: name });
+  document.body.appendChild(a); a.click(); a.remove();
+}
+document.getElementById("templateBtn").addEventListener("click", () => downloadCSV("lead-template.csv", [sampleRows()[0]]));
+document.getElementById("exportBtn").addEventListener("click", () => {
+  const list = scoped().filter(l => l.chase).sort((a, b) => (a.actionRank - b.actionRank) || (b.score - a.score));
+  if (!list.length) return toast("Nothing to export");
+  const d = new Date().toISOString().slice(0, 10);
+  downloadCSV(`chase-list-${rep ? rep.replace(/\s+/g, "-").toLowerCase() + "-" : ""}${d}.csv`,
+    [["Priority","Action","Why","Lead","Company","Email","Phone","Owner","Status","Score","Tier","Last touch (days)"],
+     ...list.map((l, i) => [i + 1, ACTIONS[l.actionRank].label, l.why, l.name, l.company, l.email, l.phone, l.owner, l.status, l.score, l.tier, l.touchDays ?? ""])]);
+});
+
+document.getElementById("todayLabel").textContent = new Date().toLocaleDateString("en-IN", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+load(sampleRows(), "fictional sample data");
+</script>
+</body>
+</html>
